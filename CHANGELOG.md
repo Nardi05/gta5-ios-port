@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- **Cooler long sessions**: "Steady frame rate when hot" is now on by default, and besides lowering the frame rate it lowers the resolution while the iPhone is hot (85% when the phone is "serious", 70% at "critical", where iOS may otherwise end the game), going back to your settings once it cools. Turn it off in Settings to keep your choices at any temperature.
+- **ProMotion iPhones no longer refresh at 120 Hz for a 30 or 60 FPS game**: the app's input loop asked the screen for its full rate, which kept the display and main thread busy for frames the game never drew.
+
 ## v1.4.2
 - **Cheats menu** (Settings › Cheats, [docs/CHEATS.md](docs/CHEATS.md)), contributed by [@gfejer](https://github.com/gfejer) ([#22](https://github.com/kevinerikjs/gta5-ios-port/pull/22)): a searchable vehicle spawner with the game's own vehicle names (it keeps your last two spawned vehicles, so they don't pile up), God mode and Never wanted switches that last until you turn them off, repair and clean, time of day and weather, next to Set money and the game's own story cheats. Everything runs on the game's main script thread.
 - **Game files download continues**: a dropped connection is retried for 30 minutes (iOS pauses the app while the phone is locked); after the app was closed, Game files offers "Continue the download", which resumes from the saved byte. Normal (non-solid, single-volume) RAR5 archives continue in the middle too, not only zip.

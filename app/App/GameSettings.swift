@@ -213,9 +213,10 @@ final class GameSettings {
         get { defaults.bool(forKey: "airplaneRightStick") }
         set { defaults.set(newValue, forKey: "airplaneRightStick") }
     }
-    /// Lower the frame rate while the phone is hot (NativePortViewController.thermalChanged). Off by default.
+    /// Lower the frame rate and resolution while the phone is hot (NativePortViewController.thermalChanged).
+    /// On by default: left alone, a hot phone throttles itself into 15 FPS swings and iOS can end the game.
     var steadyWhenHot: Bool {
-        get { defaults.bool(forKey: "steadyWhenHot") }
+        get { defaults.object(forKey: "steadyWhenHot") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "steadyWhenHot") }
     }
     /// Graphics › Sharper upscaling (MetalFX), off by default: it costs some GPU time.

@@ -112,11 +112,14 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
     private var introView: IntroVideoView?
     private var lastCPU: (cpu: Double, wall: Double)?
     private var thermalFrameLimit: Int32 = -1
+    /// Share of the chosen render height while the phone is hot (1 when it isn't).
+    private var thermalResolutionScale = 1.0
 
     /// A hot phone runs slower (iOS lowers the chip's speed), so uncapped frame rates swing between
-    /// 60 and 15 within minutes; a player's log went "serious" 30 s in. With "Steady frame rate when
-    /// hot" (off by default) the cap steps down while the phone is hot (fair: at most 60, serious: 30)
-    /// and back to the player's choice when it cools; switching it off restores the choice.
+    /// 60 and 15 within minutes; a player's log went "serious" 30 s in, and at "critical" iOS may end
+    /// the game. With "Steady frame rate when hot" (on by default) the cap steps down while the phone
+    /// is hot (fair: at most 60, serious: 30), the render height too (serious: 85%, critical: 70%),
+    /// and both go back to the player's choice when it cools; switching it off restores the choice.
     @objc private func thermalChanged() {
         // Benchmarks keep their own frame limit.
         if ProcessInfo.processInfo.environment["PG_BENCHMARK"] != nil { return }
@@ -124,18 +127,38 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
             let cap = GameSettings.shared.frameRateCap
             let chosen: Int32 = cap == 0 ? 0 : cap == 60 ? 1 : 2
             let state = ProcessInfo.processInfo.thermalState
+            let stateName = ["nominal", "fair", "serious", "critical"][min(3, state.rawValue)]
             var limit = chosen
+            var scale = 1.0
             if GameSettings.shared.steadyWhenHot {
                 if state == .fair, chosen == 0 { limit = 1 }
                 if state == .serious || state == .critical { limit = 2 }
+                scale = state == .critical ? 0.7 : state == .serious ? 0.85 : 1
             }
-            guard limit != thermalFrameLimit else { return }
-            if thermalFrameLimit >= 0 || limit != chosen {
-                appendLog("Thermal state \(["nominal", "fair", "serious", "critical"][min(3, state.rawValue)]): frame limit \(limit == 0 ? "off" : limit == 1 ? "60 FPS" : "30 FPS").")
-                PGSetFrameLimit(limit)
+            if limit != thermalFrameLimit {
+                if thermalFrameLimit >= 0 || limit != chosen {
+                    appendLog("Thermal state \(stateName): frame limit \(limit == 0 ? "off" : limit == 1 ? "60 FPS" : "30 FPS").")
+                    PGSetFrameLimit(limit)
+                }
+                thermalFrameLimit = limit
+                updateDisplayLinkRate(frameLimit: limit)
             }
-            thermalFrameLimit = limit
+            if scale != thermalResolutionScale {
+                thermalResolutionScale = scale
+                appendLog("Thermal state \(stateName): resolution \(Int(scale * 100))% of the chosen one.")
+                applyLiveResolution()
+            }
         }
+    }
+
+    /// ProMotion screens refresh as fast as the fastest thing on screen asks. The input poll
+    /// (pollController) runs on this display link, so left at the default it can keep a 30 or 60 FPS
+    /// game's screen and main thread at 120 Hz. Only an unlocked frame rate asks for more than 60.
+    private func updateDisplayLinkRate(frameLimit: Int32) {
+        let top = Float(UIScreen.main.maximumFramesPerSecond)
+        displayLink?.preferredFrameRateRange = frameLimit == 0
+            ? CAFrameRateRange(minimum: min(60, top), maximum: top, preferred: top)
+            : CAFrameRateRange(minimum: min(30, top), maximum: min(60, top), preferred: min(60, top))
     }
     private var lastHealth: [UInt64] = [0, 0, 0, 0, 0, 0, 0, 0]
     private var padProof: PGPadState?
@@ -359,10 +382,7 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(installChanged), name: .gameInstallChanged, object: nil)
         displayLink = CADisplayLink(target: self, selector: #selector(pollController))
         // ProMotion screens only run above 60 Hz when the app asks: "Unlocked" asks for up to 120.
-        if GameSettings.shared.frameRateCap == 0 {
-            let top = Float(UIScreen.main.maximumFramesPerSecond)
-            displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, top), maximum: top, preferred: top)
-        }
+        updateDisplayLinkRate(frameLimit: GameSettings.shared.frameRateCap == 0 ? 0 : 1)
         displayLink?.add(to: .main, forMode: .common)
         observeExternalDisplays()
         NotificationCenter.default.addObserver(self, selector: #selector(controllerChanged), name: .GCControllerDidDisconnect, object: nil)
@@ -1349,7 +1369,10 @@ final class NativePortViewController: UIViewController, MTKViewDelegate {
         let settings = GameSettings.shared
         // On a TV the picture takes the TV's shape.
         let surface = tvWindow?.bounds.size ?? view.bounds.size
-        let (width, height) = GraphicsConfiguration.size(for: bootedPreset, renderHeight: settings.renderHeight, screen: surface, matchScreenShape: tvWindow != nil || settings.matchScreenShape)
+        // While the phone is hot, a share of the chosen height (thermalChanged); size() keeps it at 360p or more.
+        let chosenHeight = settings.renderHeight > 0 ? settings.renderHeight : bootedPreset.height
+        let renderHeight = thermalResolutionScale < 1 ? Int(Double(chosenHeight) * thermalResolutionScale) : settings.renderHeight
+        let (width, height) = GraphicsConfiguration.size(for: bootedPreset, renderHeight: renderHeight, screen: surface, matchScreenShape: tvWindow != nil || settings.matchScreenShape)
         PGSetBackBufferSize(Int32(width), Int32(height))
         appendLog("Graphics: live resize to \(width)×\(height)")
     }
